@@ -205,18 +205,8 @@ TSOverride.on_line_impl = function(self, highlighter, buf, line)
       return
     end
 
-    if state.iter == nil or state.next_row < line then
-      ---@diagnostic disable-next-line: invisible
-      state.iter = state.highlighter_query:query():iter_captures(root_node, highlighter.bufnr, line, root_end_row + 1)
-    end
-
-    while state.next_row <= line do
-      local capture, node, metadata = state.iter()
-
-      if capture == nil then
-        break
-      end
-
+    local query = state.highlighter_query:query()
+    for capture, node, metadata in query:iter_captures(root_node, highlighter.bufnr, line, line + 1) do
       local range = vim.treesitter.get_range(node, buf, metadata[capture])
       ---@type integer, integer, integer, integer
       local start_row, start_col, end_row, end_col = Range.unpack4(range)
@@ -235,10 +225,6 @@ TSOverride.on_line_impl = function(self, highlighter, buf, line)
         then
           vim.api.nvim_buf_set_extmark(buf, NAMESPACE, start_row, start_col, mark)
         end
-      end
-
-      if line < start_row then
-        state.next_row = start_row
       end
     end
   end)
