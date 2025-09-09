@@ -48,15 +48,16 @@ end
 
 ---@return function
 TSOverride.set_override = function(self)
+  ---@param win integer
   ---@param buf integer
   ---@param line integer
-  local function on_line(_, _, buf, line)
+  local function on_line(_, win, buf, line)
     local highlighter = TSHighlighter.active[buf]
     if not highlighter then
       return
     end
 
-    self:on_line_impl(highlighter, buf, line)
+    self:on_line_impl(highlighter, win, buf, line)
   end
 
   return on_line
@@ -193,11 +194,11 @@ TSOverride.override_mark_with_ts = function(self, mark, buf, start_row, start_co
 end
 
 ---@param highlighter vim.treesitter.highlighter
+---@param win integer
 ---@param buf integer
 ---@param line integer
-TSOverride.on_line_impl = function(self, highlighter, buf, line)
-  ---@diagnostic disable-next-line: invisible
-  highlighter:for_each_highlight_state(function(state)
+TSOverride.on_line_impl = function(self, highlighter, win, buf, line)
+  local function callback(state)
     local root_node = state.tstree:root()
 
     local root_start_row, _, root_end_row, _ = root_node:range()
@@ -227,7 +228,14 @@ TSOverride.on_line_impl = function(self, highlighter, buf, line)
         end
       end
     end
-  end)
+  end
+  if vim.fn.has 'nvim-0.11.3' == 1 then
+    ---@diagnostic disable-next-line: invisible
+    highlighter:for_each_highlight_state(win, callback)
+  else
+    ---@diagnostic disable-next-line: invisible
+    highlighter:for_each_highlight_state(callback)
+  end
 end
 
 return TSOverride
