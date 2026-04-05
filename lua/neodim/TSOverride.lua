@@ -13,7 +13,7 @@ local NAMESPACE = vim.api.nvim_create_namespace 'treesitter/highlighter'
 ---@field end_col integer
 
 ---@class neodim.TSOverride
----@field diagnostics_map table<buffer, table<integer, neodim.ColumnRange[]>>
+---@field diagnostics_map table<integer, table<integer, neodim.ColumnRange[]>>
 ---@field highlight_cache table<string, string>
 local TSOverride = {}
 ---@private

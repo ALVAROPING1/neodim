@@ -18,7 +18,7 @@ local M = {}
 ---@field end_col integer
 ---@field end_row integer
 
----@param buf buffer
+---@param buf integer
 ---@param token_range STTokenRange
 ---@return extmark[]
 local function get_sttoken_extmarks(buf, token_range)
@@ -73,7 +73,7 @@ local function get_max_pri_extmark(extmarks)
   end
 end
 
----@param buf buffer
+---@param buf integer
 ---@param row integer
 ---@param col integer
 ---@return extmark_data?
