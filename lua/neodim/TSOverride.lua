@@ -195,19 +195,9 @@ TSOverride.override_mark_with_ts = function(self, mark, buf, start_row, start_co
       '@' .. capture_name
     )
     mark.priority = config.opts.priority
-  else
-    mark.hl_group = hl
-    mark.priority = (tonumber(metadata.priority) or vim.highlight.priorities.treesitter)
-        + (capture_name == 'nospell' and 1 or 0)
+    return true
   end
-
-  if capture_name == 'spell' then
-    mark.spell = true
-  elseif capture_name == 'nospell' then
-    mark.spell = false
-  end
-
-  return true
+  return false
 end
 
 ---@param highlighter vim.treesitter.highlighter
@@ -254,7 +244,6 @@ TSOverride.on_range_impl = function(
         end_row = end_row,
         end_col = end_col,
         ephemeral = true,
-        conceal = metadata.conceal or metadata[capture] and metadata[capture].conceal,
       }
       if
           self:override_mark_with_lsp(mark, buf, start_row, start_col)
