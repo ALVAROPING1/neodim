@@ -26,12 +26,14 @@ TSOverride.init = function()
     diagnostics_map = {},
     highlight_cache = {},
   }, TSOverride)
+  local use_range = vim.fn.has 'nvim-0.12' == 1
 
   -- these are 'private' but technically accessible
   -- if that every changes, we will have to override the whole TSHighlighter
   vim.api.nvim_set_decoration_provider(NAMESPACE, {
     on_win = TSHighlighter._on_win, ---@diagnostic disable-line: invisible
-    on_line = self:set_override(),
+    on_line = not use_range and self:set_override_line() or nil,
+    on_range = use_range and self:set_override_range() or nil,
   })
   vim.api.nvim_create_autocmd('ColorScheme', {
     callback = function()
@@ -46,20 +48,36 @@ TSOverride.init = function()
 end
 
 ---@return function
-TSOverride.set_override = function(self)
+TSOverride.set_override_line = function(self)
+  local on_range = self:set_override_range()
   ---@param win integer
   ---@param buf integer
   ---@param line integer
   local function on_line(_, win, buf, line)
+    on_range('range', win, buf, line, 0, line + 1, 0)
+  end
+
+  return on_line
+end
+
+---@return function
+TSOverride.set_override_range = function(self)
+  ---@param win integer
+  ---@param buf integer
+  ---@param br integer
+  ---@param bc integer
+  ---@param er integer
+  ---@param ec integer
+  local function on_range(_, win, buf, br, bc, er, ec)
     local highlighter = TSHighlighter.active[buf]
     if not highlighter then
       return
     end
 
-    self:on_line_impl(highlighter, win, buf, line)
+    return self:on_range_impl(highlighter, win, buf, br, bc, er, ec)
   end
 
-  return on_line
+  return on_range
 end
 
 ---@param diagnostics vim.Diagnostic[]
@@ -180,7 +198,7 @@ TSOverride.override_mark_with_ts = function(self, mark, buf, start_row, start_co
   else
     mark.hl_group = hl
     mark.priority = (tonumber(metadata.priority) or vim.highlight.priorities.treesitter)
-      + (capture_name == 'nospell' and 1 or 0)
+        + (capture_name == 'nospell' and 1 or 0)
   end
 
   if capture_name == 'spell' then
@@ -195,40 +213,58 @@ end
 ---@param highlighter vim.treesitter.highlighter
 ---@param win integer
 ---@param buf integer
----@param line integer
-TSOverride.on_line_impl = function(self, highlighter, win, buf, line)
+---@param range_start_row integer
+---@param range_start_col integer
+---@param range_end_row integer
+---@param range_end_col integer
+TSOverride.on_range_impl = function(
+    self,
+    highlighter,
+    win,
+    buf,
+    range_start_row,
+    range_start_col,
+    range_end_row,
+    range_end_col
+)
+  ---@diagnostic disable-next-line: invisible
+  ---@param state vim.treesitter.highlighter.State
   local function callback(state)
     local root_node = state.tstree:root()
+    ---@type { [1]: integer, [2]: integer, [3]: integer, [4]: integer }
+    local root_range = { root_node:range() }
 
-    local root_start_row, _, root_end_row, _ = root_node:range()
-    if line < root_start_row or root_end_row < line then
+    if not Range.intercepts(root_range, { range_start_row, range_start_col, range_end_row, range_end_col }) then
       return
     end
 
     local query = state.highlighter_query:query()
-    for capture, node, metadata in query:iter_captures(root_node, highlighter.bufnr, line, line + 1) do
+    local iter = query:iter_captures(
+      root_node,
+      buf,
+      range_start_row,
+      range_end_row,
+      { start_col = range_start_col, end_col = range_end_col }
+    )
+    for capture, node, metadata in iter do
       local range = vim.treesitter.get_range(node, buf, metadata[capture])
-      ---@type integer, integer, integer, integer
       local start_row, start_col, end_row, end_col = Range.unpack4(range)
-
-      if line <= end_row then
-        ---@type vim.api.keyset.set_extmark
-        local mark = {
-          end_line = end_row,
-          end_col = end_col,
-          ephemeral = true,
-          conceal = metadata.conceal,
-        }
-        if
+      ---@type vim.api.keyset.set_extmark
+      local mark = {
+        end_row = end_row,
+        end_col = end_col,
+        ephemeral = true,
+        conceal = metadata.conceal or metadata[capture] and metadata[capture].conceal,
+      }
+      if
           self:override_mark_with_lsp(mark, buf, start_row, start_col)
           or self:override_mark_with_ts(mark, buf, start_row, start_col, state.highlighter_query, capture, metadata)
-        then
-          vim.api.nvim_buf_set_extmark(buf, NAMESPACE, start_row, start_col, mark)
-        end
+      then
+        vim.api.nvim_buf_set_extmark(buf, NAMESPACE, start_row, start_col, mark)
       end
     end
   end
-  if vim.fn.has 'nvim-0.11.3' == 1 then
+  if vim.fn.has 'nvim-0.11.3' == 1 and vim.fn.has 'nvim-0.12' == 0 then
     ---@diagnostic disable-next-line: invisible
     highlighter:for_each_highlight_state(win, callback)
   else
