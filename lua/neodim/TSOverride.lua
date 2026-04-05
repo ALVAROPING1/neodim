@@ -32,7 +32,6 @@ TSOverride.init = function()
   vim.api.nvim_set_decoration_provider(NAMESPACE, {
     on_win = TSHighlighter._on_win, ---@diagnostic disable-line: invisible
     on_line = self:set_override(),
-    _on_spell_nav = TSHighlighter._on_spell_nav, ---@diagnostic disable-line: invisible
   })
   vim.api.nvim_create_autocmd('ColorScheme', {
     callback = function()
