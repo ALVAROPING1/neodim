@@ -164,7 +164,7 @@ end
 ---@return boolean
 TSOverride.override_mark_with_lsp = function(self, mark, buf, start_row, start_col)
   local sttoken_mark_data = lsp.get_sttoken_mark_data(buf, start_row, start_col)
-  if sttoken_mark_data and self:is_unused(buf, start_row, start_col) then
+  if sttoken_mark_data then
     mark.hl_group = self:get_dim_color(sttoken_mark_data.hl_opts, sttoken_mark_data.hl_name)
     mark.priority = config.opts.priority
     return true
@@ -188,16 +188,12 @@ TSOverride.override_mark_with_ts = function(self, mark, buf, start_row, start_co
   end
   ---@diagnostic disable-next-line: invisible
   local capture_name = hl_query:query().captures[capture]
-
-  if self:is_unused(buf, start_row, start_col) then
-    mark.hl_group = self:get_dim_color(
-      vim.api.nvim_get_hl(0, { id = hl, link = false }) --[[@as vim.api.keyset.highlight]],
-      '@' .. capture_name
-    )
-    mark.priority = config.opts.priority
-    return true
-  end
-  return false
+  mark.hl_group = self:get_dim_color(
+    vim.api.nvim_get_hl(0, { id = hl, link = false }) --[[@as vim.api.keyset.highlight]],
+    '@' .. capture_name
+  )
+  mark.priority = config.opts.priority
+  return true
 end
 
 ---@param highlighter vim.treesitter.highlighter
@@ -246,8 +242,11 @@ TSOverride.on_range_impl = function(
         ephemeral = true,
       }
       if
-          self:override_mark_with_lsp(mark, buf, start_row, start_col)
-          or self:override_mark_with_ts(mark, buf, start_row, start_col, state.highlighter_query, capture, metadata)
+          self:is_unused(buf, start_row, start_col)
+          and (
+            self:override_mark_with_lsp(mark, buf, start_row, start_col)
+            or self:override_mark_with_ts(mark, buf, start_row, start_col, state.highlighter_query, capture, metadata)
+          )
       then
         vim.api.nvim_buf_set_extmark(buf, NAMESPACE, start_row, start_col, mark)
       end
