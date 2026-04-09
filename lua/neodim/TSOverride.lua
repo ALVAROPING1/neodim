@@ -31,7 +31,7 @@ TSOverride.init = function()
   -- these are 'private' but technically accessible
   -- if that every changes, we will have to override the whole TSHighlighter
   vim.api.nvim_set_decoration_provider(NAMESPACE, {
-    on_win = TSHighlighter._on_win, ---@diagnostic disable-line: invisible
+    on_win = self:set_override_win(),
     on_line = not use_range and self:set_override_line() or nil,
     on_range = use_range and self:set_override_range() or nil,
   })
@@ -45,6 +45,30 @@ TSOverride.init = function()
   })
 
   return self
+end
+
+---@return function
+TSOverride.set_override_win = function(self)
+  ---@param winid integer
+  ---@param bufnr integer
+  ---@param top integer
+  ---@param bottom integer
+  local function on_win(_, winid, bufnr, top, bottom)
+    TSHighlighter._on_win(_, winid, bufnr, top, bottom) ---@diagnostic disable-line: invisible
+    local map_buf = self.diagnostics_map[bufnr]
+    if not map_buf then
+      return false
+    end
+    for i = top, bottom do
+      local range_list = map_buf[i]
+      if range_list and range_list[1] then
+        return true
+      end
+    end
+    return false
+  end
+
+  return on_win
 end
 
 ---@return function
