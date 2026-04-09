@@ -197,20 +197,15 @@ TSOverride.override_mark_with_lsp = function(self, mark, buf, start_row, start_c
 end
 
 ---@param mark vim.api.keyset.set_extmark
----@param buf integer
----@param start_row integer
----@param start_col integer
 ---@param hl_query vim.treesitter.highlighter.Query
 ---@param capture integer
----@param metadata vim.treesitter.query.TSMetadata
 ---@return boolean
-TSOverride.override_mark_with_ts = function(self, mark, buf, start_row, start_col, hl_query, capture, metadata)
+TSOverride.override_mark_with_ts = function(self, mark, hl_query, capture)
   ---@diagnostic disable-next-line: invisible
   local hl = hl_query:get_hl_from_capture(capture)
   if not hl or hl == 0 then
     return false
   end
-  ---@diagnostic disable-next-line: invisible
   local capture_name = hl_query:query().captures[capture]
   mark.hl_group = self:get_dim_color(
     vim.api.nvim_get_hl(0, { id = hl, link = false }) --[[@as vim.api.keyset.highlight]],
@@ -269,7 +264,7 @@ TSOverride.on_range_impl = function(
           self:is_unused(buf, start_row, start_col)
           and (
             self:override_mark_with_lsp(mark, buf, start_row, start_col)
-            or self:override_mark_with_ts(mark, buf, start_row, start_col, state.highlighter_query, capture, metadata)
+            or self:override_mark_with_ts(mark, state.highlighter_query, capture)
           )
       then
         vim.api.nvim_buf_set_extmark(buf, NAMESPACE, start_row, start_col, mark)
