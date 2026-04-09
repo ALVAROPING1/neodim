@@ -19,6 +19,9 @@ local TSOverride = {}
 ---@private
 TSOverride.__index = TSOverride
 
+local use_range = vim.fn.has 'nvim-0.12' == 1
+local use_line_win = vim.fn.has 'nvim-0.11.3' == 1 and not use_range
+
 ---@return self
 TSOverride.init = function()
   ---@type neodim.TSOverride
@@ -26,7 +29,6 @@ TSOverride.init = function()
     diagnostics_map = {},
     highlight_cache = {},
   }, TSOverride)
-  local use_range = vim.fn.has 'nvim-0.12' == 1
 
   -- these are 'private' but technically accessible
   -- if that every changes, we will have to override the whole TSHighlighter
@@ -271,7 +273,7 @@ TSOverride.on_range_impl = function(
       end
     end
   end
-  if vim.fn.has 'nvim-0.11.3' == 1 and vim.fn.has 'nvim-0.12' == 0 then
+  if use_line_win then
     ---@diagnostic disable-next-line: invisible
     highlighter:for_each_highlight_state(win, callback)
   else
