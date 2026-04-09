@@ -57,17 +57,9 @@ TSOverride.set_override_win = function(self)
   ---@param bottom integer
   local function on_win(_, winid, bufnr, top, bottom)
     TSHighlighter._on_win(_, winid, bufnr, top, bottom) ---@diagnostic disable-line: invisible
-    local map_buf = self.diagnostics_map[bufnr]
-    if not map_buf then
+    if not self.diagnostics_map[bufnr] then
       return false
     end
-    for i = top, bottom do
-      local range_list = map_buf[i]
-      if range_list and range_list[1] then
-        return true
-      end
-    end
-    return false
   end
 
   return on_win
@@ -153,14 +145,7 @@ end
 ---@param col integer
 ---@return boolean
 TSOverride.is_unused = function(self, bufnr, row, col)
-  local map_buf = self.diagnostics_map[bufnr]
-  if not map_buf then
-    return false
-  end
-  local range_list = map_buf[row]
-  if not range_list then
-    return false
-  end
+  local range_list = self.diagnostics_map[bufnr][row]
   for _, range in list.iter(range_list) do
     if range.start_col <= col and col <= range.end_col then
       return true
@@ -234,6 +219,10 @@ TSOverride.on_range_impl = function(
     range_end_row,
     range_end_col
 )
+  if not self.diagnostics_map[buf][range_start_row] then
+    return
+  end
+
   ---@diagnostic disable-next-line: invisible
   ---@param state vim.treesitter.highlighter.State
   local function callback(state)
@@ -274,11 +263,9 @@ TSOverride.on_range_impl = function(
     end
   end
   if use_line_win then
-    ---@diagnostic disable-next-line: invisible
-    highlighter:for_each_highlight_state(win, callback)
+    highlighter:for_each_highlight_state(win, callback)  ---@diagnostic disable-line: invisible
   else
-    ---@diagnostic disable-next-line: invisible
-    highlighter:for_each_highlight_state(callback)
+    highlighter:for_each_highlight_state(callback) ---@diagnostic disable-line: invisible
   end
 end
 
