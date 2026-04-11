@@ -6,7 +6,8 @@ local config = require 'neodim.config'
 local list = require 'neodim.list'
 local lsp = require 'neodim.lsp'
 
-local NAMESPACE = vim.api.nvim_create_namespace 'treesitter/highlighter'
+local NAMESPACE = vim.api.nvim_create_namespace 'neodim.treesitter'
+local NAMESPACE_LSP = vim.api.nvim_create_namespace 'neodim.semantic_tokens'
 
 ---@class neodim.ColumnRange
 ---@field start_col integer
@@ -15,6 +16,7 @@ local NAMESPACE = vim.api.nvim_create_namespace 'treesitter/highlighter'
 ---@class neodim.TSOverride
 ---@field diagnostics_map table<integer, table<integer, neodim.ColumnRange[]>>
 ---@field highlight_cache table<string, string>
+---@field version_num table<integer, {num: integer, cleared: boolean}>
 local TSOverride = {}
 ---@private
 TSOverride.__index = TSOverride
@@ -28,6 +30,7 @@ TSOverride.init = function()
   local self = setmetatable({
     diagnostics_map = {},
     highlight_cache = {},
+    version_num = {},
   }, TSOverride)
 
   -- these are 'private' but technically accessible
@@ -60,6 +63,22 @@ TSOverride.set_override_win = function(self)
     if not self.diagnostics_map[bufnr] then
       return false
     end
+    local version = self.version_num[bufnr]
+    if not version.cleared then
+      vim.api.nvim_buf_clear_namespace(bufnr, NAMESPACE_LSP, 0, -1)
+      version.cleared = true
+    end
+
+    lsp.for_each_token(bufnr, top, bottom, function(client_id, token)
+      if
+          self.diagnostics_map[bufnr][token.line]
+          and token.neodim_version ~= version.num
+          and self:is_unused(bufnr, token.line, token.start_col)
+      then
+        self:override_mark_with_lsp(bufnr, client_id, token)
+        token.neodim_version = version.num ---@diagnostic disable-line: inject-field
+      end
+    end)
   end
 
   return on_win
@@ -139,6 +158,8 @@ TSOverride.update_unused = function(self, diagnostics, bufnr)
       list.insert(range_list, range)
     end
   end
+  local version = self.version_num[bufnr] or { num = 0 }
+  self.version_num[bufnr] = { num = version.num + 1, cleared = false }
 end
 
 ---@param row integer
@@ -168,19 +189,21 @@ TSOverride.get_dim_color = function(self, hl, hl_name)
   return self.highlight_cache[hl_name]
 end
 
----@param mark vim.api.keyset.set_extmark
 ---@param buf integer
----@param start_row integer
----@param start_col integer
----@return boolean
-TSOverride.override_mark_with_lsp = function(self, mark, buf, start_row, start_col)
-  local sttoken_mark_data = lsp.get_sttoken_mark_data(buf, start_row, start_col)
+---@param client_id integer
+---@param token STTokenRange
+TSOverride.override_mark_with_lsp = function(self, buf, client_id, token)
+  local sttoken_mark_data = lsp.get_sttoken_mark_data(buf, client_id, token)
   if sttoken_mark_data then
-    mark.hl_group = self:get_dim_color(sttoken_mark_data.hl_opts, sttoken_mark_data.hl_name)
-    mark.priority = config.opts.priority
-    return true
+    local hl_group = self:get_dim_color(sttoken_mark_data.hl_opts, sttoken_mark_data.hl_name)
+    vim.api.nvim_buf_set_extmark(buf, NAMESPACE_LSP, token.line, token.start_col, {
+      hl_group = hl_group,
+      end_line = token.end_line,
+      end_col = token.end_col,
+      priority = config.opts.priority + 10,
+      strict = false,
+    })
   end
-  return false
 end
 
 ---@param mark vim.api.keyset.set_extmark
@@ -253,17 +276,14 @@ TSOverride.on_range_impl = function(
       }
       if
           self:is_unused(buf, start_row, start_col)
-          and (
-            self:override_mark_with_lsp(mark, buf, start_row, start_col)
-            or self:override_mark_with_ts(mark, state.highlighter_query, capture)
-          )
+          and self:override_mark_with_ts(mark, state.highlighter_query, capture)
       then
         vim.api.nvim_buf_set_extmark(buf, NAMESPACE, start_row, start_col, mark)
       end
     end
   end
   if use_line_win then
-    highlighter:for_each_highlight_state(win, callback)  ---@diagnostic disable-line: invisible
+    highlighter:for_each_highlight_state(win, callback) ---@diagnostic disable-line: invisible
   else
     highlighter:for_each_highlight_state(callback) ---@diagnostic disable-line: invisible
   end

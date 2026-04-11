@@ -1,8 +1,147 @@
 local api = vim.api
+local util = vim.lsp.util
+local STHighlighter = vim.lsp.semantic_tokens.__STHighlighter
 
 local list = require 'neodim.list'
+local vim_list = vim.list or {}
 
 local M = {}
+
+local ns_name_prefix = vim.fn.has 'nvim-0.11' == 1 and 'nvim.lsp.semantic_tokens:' or 'vim_lsp_semantic_tokens:'
+
+-- NOTE: backported from nvim 0.12
+-- TODO: remove when dropping support for nvim 0.11
+if vim.fn.has 'nvim-0.12' == 0 then
+  ---@generic T
+  ---@param v T
+  ---@param key? fun(v: T): any
+  ---@return any
+  local function key_fn(v, key)
+    return key and key(v) or v
+  end
+
+  ---@generic T
+  ---@param t T[]
+  ---@param val T
+  ---@param key? fun(val: any): any
+  ---@param lo integer
+  ---@param hi integer
+  ---@return integer i
+  local function lower_bound(t, val, lo, hi, key)
+    local bit = require 'bit' -- Load bitop on demand
+    local val_key = key_fn(val, key)
+    while lo < hi do
+      local mid = bit.rshift(lo + hi, 1) -- Equivalent to floor((lo + hi) / 2)
+      if key_fn(t[mid], key) < val_key then
+        lo = mid + 1
+      else
+        hi = mid
+      end
+    end
+    return lo
+  end
+
+  ---@generic T
+  ---@param t T[]
+  ---@param val T
+  ---@param key? fun(val: any): any
+  ---@param lo integer
+  ---@param hi integer
+  ---@return integer i
+  local function upper_bound(t, val, lo, hi, key)
+    local bit = require 'bit' -- Load bitop on demand
+    local val_key = key_fn(val, key)
+    while lo < hi do
+      local mid = bit.rshift(lo + hi, 1) -- Equivalent to floor((lo + hi) / 2)
+      if val_key < key_fn(t[mid], key) then
+        hi = mid
+      else
+        lo = mid + 1
+      end
+    end
+    return lo
+  end
+
+  ---@generic T
+  ---@param t T[] A comparable list.
+  ---@param val T The value to search.
+  ---@param opts? vim.list.bisect.Opts
+  ---@return integer index serves as either the lower bound or the upper bound position.
+  function vim_list.bisect(t, val, opts)
+    vim.validate('t', t, 'table')
+    vim.validate('opts', opts, 'table', true)
+
+    opts = opts or {}
+    local lo = opts.lo or 1
+    local hi = opts.hi or #t + 1
+    local key = opts.key
+
+    if opts.bound == 'upper' then
+      return upper_bound(t, val, lo, hi, key)
+    else
+      return lower_bound(t, val, lo, hi, key)
+    end
+  end
+end
+
+--- @param lnum integer
+--- @param foldend integer?
+--- @return boolean, integer?
+local function check_fold(lnum, foldend)
+  if foldend and lnum <= foldend then
+    return true, foldend
+  end
+
+  local folded = vim.fn.foldclosed(lnum)
+
+  if folded == -1 then
+    return false, nil
+  end
+
+  return folded ~= lnum, vim.fn.foldclosedend(lnum)
+end
+
+---@param buf integer
+---@param topline integer
+---@param botline integer
+---@param fn fun(client_id: integer, token: STTokenRange)
+function M.for_each_token(buf, topline, botline, fn)
+  local self = STHighlighter.active[buf]
+  if not self then
+    return
+  end
+  for client_id, state in pairs(self.client_state) do
+    local current_result = state.current_result
+    if current_result.version == util.buf_versions[self.bufnr] then
+      local highlights = assert(current_result.highlights)
+      -- NOTE: `end_line` was added in nvim 0.12
+      -- TODO: remove `line` when dropping support for nvim 0.11
+      local first = vim_list.bisect(highlights, { line = topline, end_line = topline }, {
+        key = function(highlight)
+          return highlight.end_line or highlight.line
+        end,
+      })
+      local last = vim_list.bisect(highlights, { line = botline }, {
+        lo = first,
+        bound = 'upper',
+        key = function(highlight)
+          return highlight.line
+        end,
+      }) - 1
+
+      --- @type boolean?, integer?
+      local is_folded, foldend
+
+      for i = first, last do
+        local token = assert(highlights[i])
+        is_folded, foldend = check_fold(token.line + 1, foldend)
+        if not is_folded then
+          fn(client_id, token)
+        end
+      end
+    end
+  end
+end
 
 ---@alias extmark_data { priority: integer, hl_name: string, hl_opts: table }?
 
@@ -19,30 +158,15 @@ local M = {}
 ---@field end_row integer
 
 ---@param buf integer
+---@param client_id integer
 ---@param token_range STTokenRange
 ---@return extmark[]
-local function get_sttoken_extmarks(buf, token_range)
-  -- NOTE: vim.lsp.get_active_clients() was renamed to get_clients() and deprecated on Neovim v0.10
-  ---@diagnostic disable-next-line: deprecated
-  local get_clients = vim.lsp.get_clients or vim.lsp.get_active_clients
-  ---@type table<integer, true>
-  local client_ids = {}
-  for _, client in pairs(get_clients { bufnr = buf }) do
-    client_ids[client.id] = true
-  end
-
+local function get_sttoken_extmarks(buf, client_id, token_range)
   local start = { token_range.line, token_range.start_col }
   local end_ = { token_range.line, token_range.end_col }
   local opts = { type = 'highlight', details = true }
-  ---@type extmark[]
-  local extmarks = list.new()
-  for name, ns_id in pairs(vim.api.nvim_get_namespaces()) do
-    local client_id = name:sub(#'vim_lsp_semantic_tokens:')
-    if client_ids[tonumber(client_id)] then
-      list.extend(extmarks, list.from_raw(api.nvim_buf_get_extmarks(buf, ns_id, start, end_, opts)))
-    end
-  end
-  return extmarks
+  local ns_id = vim.api.nvim_create_namespace(ns_name_prefix .. client_id)
+  return list.from_raw(api.nvim_buf_get_extmarks(buf, ns_id, start, end_, opts))
 end
 
 ---@param extmarks extmark[]
@@ -74,25 +198,12 @@ local function get_max_pri_extmark(extmarks)
 end
 
 ---@param buf integer
----@param row integer
----@param col integer
+---@param client_id integer
+---@param token STTokenRange
 ---@return extmark_data?
-function M.get_sttoken_mark_data(buf, row, col)
-  local max_priority = 0
-  ---@type extmark_data?
-  local mark_data
-
-  ---@type STTokenRange[]?
-  local token_ranges = vim.lsp.semantic_tokens.get_at_pos(buf, row, col)
-  for _, token_range in ipairs(token_ranges or {}) do
-    local extmarks = get_sttoken_extmarks(buf, token_range)
-    local info = get_max_pri_extmark(extmarks)
-    if info and info.priority > max_priority then
-      mark_data = info
-    end
-  end
-
-  return mark_data
+function M.get_sttoken_mark_data(buf, client_id, token)
+  local extmarks = get_sttoken_extmarks(buf, client_id, token)
+  return get_max_pri_extmark(extmarks)
 end
 
 return M
