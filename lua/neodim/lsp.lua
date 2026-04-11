@@ -7,8 +7,6 @@ local vim_list = vim.list or {}
 
 local M = {}
 
-local ns_name_prefix = vim.fn.has 'nvim-0.11' == 1 and 'nvim.lsp.semantic_tokens:' or 'vim_lsp_semantic_tokens:'
-
 -- NOTE: backported from nvim 0.12
 -- TODO: remove when dropping support for nvim 0.11
 if vim.fn.has 'nvim-0.12' == 0 then
@@ -104,13 +102,13 @@ end
 ---@param buf integer
 ---@param topline integer
 ---@param botline integer
----@param fn fun(client_id: integer, token: STTokenRange)
+---@param fn fun(ns: integer, token: STTokenRange)
 function M.for_each_token(buf, topline, botline, fn)
   local self = STHighlighter.active[buf]
   if not self then
     return
   end
-  for client_id, state in pairs(self.client_state) do
+  for _, state in pairs(self.client_state) do
     local current_result = state.current_result
     if current_result.version == util.buf_versions[self.bufnr] then
       local highlights = assert(current_result.highlights)
@@ -136,7 +134,7 @@ function M.for_each_token(buf, topline, botline, fn)
         local token = assert(highlights[i])
         is_folded, foldend = check_fold(token.line + 1, foldend)
         if not is_folded then
-          fn(client_id, token)
+          fn(state.namespace, token)
         end
       end
     end
@@ -158,15 +156,14 @@ end
 ---@field end_row integer
 
 ---@param buf integer
----@param client_id integer
+---@param ns integer
 ---@param token_range STTokenRange
 ---@return extmark[]
-local function get_sttoken_extmarks(buf, client_id, token_range)
+local function get_sttoken_extmarks(buf, ns, token_range)
   local start = { token_range.line, token_range.start_col }
   local end_ = { token_range.line, token_range.end_col }
   local opts = { type = 'highlight', details = true }
-  local ns_id = vim.api.nvim_create_namespace(ns_name_prefix .. client_id)
-  return list.from_raw(api.nvim_buf_get_extmarks(buf, ns_id, start, end_, opts))
+  return list.from_raw(api.nvim_buf_get_extmarks(buf, ns, start, end_, opts))
 end
 
 ---@param extmarks extmark[]
@@ -198,11 +195,11 @@ local function get_max_pri_extmark(extmarks)
 end
 
 ---@param buf integer
----@param client_id integer
+---@param ns integer
 ---@param token STTokenRange
 ---@return extmark_data?
-function M.get_sttoken_mark_data(buf, client_id, token)
-  local extmarks = get_sttoken_extmarks(buf, client_id, token)
+function M.get_sttoken_mark_data(buf, ns, token)
+  local extmarks = get_sttoken_extmarks(buf, ns, token)
   return get_max_pri_extmark(extmarks)
 end
 

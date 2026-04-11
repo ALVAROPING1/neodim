@@ -69,13 +69,13 @@ TSOverride.set_override_win = function(self)
       version.cleared = true
     end
 
-    lsp.for_each_token(bufnr, top, bottom, function(client_id, token)
+    lsp.for_each_token(bufnr, top, bottom, function(ns, token)
       if
           self.diagnostics_map[bufnr][token.line]
           and token.neodim_version ~= version.num
           and self:is_unused(bufnr, token.line, token.start_col)
       then
-        self:override_mark_with_lsp(bufnr, client_id, token)
+        self:override_mark_with_lsp(bufnr, ns, token)
         token.neodim_version = version.num ---@diagnostic disable-line: inject-field
       end
     end)
@@ -190,10 +190,10 @@ TSOverride.get_dim_color = function(self, hl, hl_name)
 end
 
 ---@param buf integer
----@param client_id integer
+---@param ns integer
 ---@param token STTokenRange
-TSOverride.override_mark_with_lsp = function(self, buf, client_id, token)
-  local sttoken_mark_data = lsp.get_sttoken_mark_data(buf, client_id, token)
+TSOverride.override_mark_with_lsp = function(self, buf, ns, token)
+  local sttoken_mark_data = lsp.get_sttoken_mark_data(buf, ns, token)
   if sttoken_mark_data then
     local hl_group = self:get_dim_color(sttoken_mark_data.hl_opts, sttoken_mark_data.hl_name)
     vim.api.nvim_buf_set_extmark(buf, NAMESPACE_LSP, token.line, token.start_col, {
