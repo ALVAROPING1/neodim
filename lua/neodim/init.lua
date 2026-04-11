@@ -30,11 +30,11 @@ dim.setup = function(opts)
   end
   local ts_override = TSOverride.init()
   vim.diagnostic.handlers['dim/unused'] = {
-    show = function(_, bufnr, _, _)
-      ts_override:update_unused(filter.get_unused(vim.diagnostic.get(bufnr)), bufnr)
+    show = function(_, bufnr, diagnostics, _)
+      ts_override:update_unused(filter.get_unused(diagnostics), bufnr)
     end,
     hide = function(_, bufnr)
-      ts_override:update_unused({}, bufnr)
+      ts_override:update_unused(filter.get_unused(vim.diagnostic.get(bufnr)), bufnr)
     end,
   }
 end
