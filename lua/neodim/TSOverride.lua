@@ -60,7 +60,8 @@ TSOverride.set_override_win = function(self)
   ---@param bottom integer
   local function on_win(_, winid, bufnr, top, bottom)
     TSHighlighter._on_win(_, winid, bufnr, top, bottom) ---@diagnostic disable-line: invisible
-    if not self.diagnostics_map[bufnr] then
+    local map_buf = self.diagnostics_map[bufnr]
+    if not map_buf then
       return false
     end
     local version = self.version_num[bufnr]
@@ -69,8 +70,19 @@ TSOverride.set_override_win = function(self)
       version.cleared = true
     end
 
+    for i = top, bottom do
+      if map_buf[i] then
+        top = i
+        break
+      end
+    end
+    for i = bottom, top, -1 do
+      if map_buf[i] then
+        bottom = i
+        break
+      end
+    end
     lsp.for_each_token(bufnr, top, bottom, function(ns, token)
-      local map_buf = self.diagnostics_map[bufnr]
       if not map_buf[token.line] then
         for i = token.line + 1, bottom do
           if map_buf[i] then
