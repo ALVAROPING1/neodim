@@ -102,7 +102,7 @@ end
 ---@param buf integer
 ---@param topline integer
 ---@param botline integer
----@param fn fun(ns: integer, token: STTokenRange)
+---@param fn fun(ns: integer, token: STTokenRange): integer|boolean|nil
 function M.for_each_token(buf, topline, botline, fn)
   local self = STHighlighter.active[buf]
   if not self then
@@ -130,12 +130,25 @@ function M.for_each_token(buf, topline, botline, fn)
       --- @type boolean?, integer?
       local is_folded, foldend
 
-      for i = first, last do
+      local i = first
+      while i <= last do
         local token = assert(highlights[i])
         is_folded, foldend = check_fold(token.line + 1, foldend)
         if not is_folded then
-          fn(state.namespace, token)
+          local next_line = fn(state.namespace, token)
+          if next_line == false then
+            return
+          elseif next_line then
+            i = vim_list.bisect(highlights, { end_line = next_line }, {
+              lo = i + 1,
+              hi = last + 1,
+              key = function(highlight)
+                return highlight.end_line
+              end,
+            }) - 1
+          end
         end
+        i = i + 1
       end
     end
   end

@@ -70,11 +70,15 @@ TSOverride.set_override_win = function(self)
     end
 
     lsp.for_each_token(bufnr, top, bottom, function(ns, token)
-      if
-          self.diagnostics_map[bufnr][token.line]
-          and token.neodim_version ~= version.num
-          and self:is_unused(bufnr, token.line, token.start_col)
-      then
+      local map_buf = self.diagnostics_map[bufnr]
+      if not map_buf[token.line] then
+        for i = token.line + 1, bottom do
+          if map_buf[i] then
+            return i
+          end
+        end
+        return false
+      elseif token.neodim_version ~= version.num and self:is_unused(bufnr, token.line, token.start_col) then
         self:override_mark_with_lsp(bufnr, ns, token)
         token.neodim_version = version.num ---@diagnostic disable-line: inject-field
       end
