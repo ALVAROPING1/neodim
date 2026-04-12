@@ -6,6 +6,7 @@ local list = require 'neodim.list'
 local vim_list = vim.list or {}
 
 local M = {}
+local client_ns = {}
 
 -- NOTE: backported from nvim 0.12
 -- TODO: remove when dropping support for nvim 0.11
@@ -82,6 +83,16 @@ if vim.fn.has 'nvim-0.12' == 0 then
   end
 end
 
+vim.api.nvim_create_autocmd("LspAttach", {
+  callback = function(ev)
+    local client_id = ev.data.client_id
+    local ns = vim.api.nvim_create_namespace('neodim.semantic_tokens:' .. client_id)
+    local state =  client_ns[ev.buf] or {}
+    state[client_id] = ns
+    client_ns[ev.buf] = state
+  end
+})
+
 --- @param lnum integer
 --- @param foldend integer?
 --- @return boolean, integer?
@@ -99,18 +110,38 @@ local function check_fold(lnum, foldend)
   return folded ~= lnum, vim.fn.foldclosedend(lnum)
 end
 
+---@param token STTokenRange
+---@param bufnr integer
+---@param client_id integer
+---@param hl_group string
+---@param priority integer
+function M.highlight(token, bufnr, client_id, hl_group, priority)
+  vim.api.nvim_buf_set_extmark(bufnr, client_ns[bufnr][client_id], token.line, token.start_col, {
+    hl_group = hl_group,
+    end_line = token.end_line,
+    end_col = token.end_col,
+    priority = priority,
+    strict = false,
+  })
+end
+
 ---@param buf integer
+---@param version integer
 ---@param topline integer
 ---@param botline integer
----@param fn fun(ns: integer, token: STTokenRange): integer|boolean|nil
-function M.for_each_token(buf, topline, botline, fn)
+---@param fn fun(client_id: integer, token: STTokenRange): integer|boolean|nil
+function M.for_each_token(buf, version, topline, botline, fn)
   local self = STHighlighter.active[buf]
   if not self then
     return
   end
-  for _, state in pairs(self.client_state) do
+  for client_id, state in pairs(self.client_state) do
     local current_result = state.current_result
     if current_result.version == util.buf_versions[self.bufnr] then
+      if current_result.neodim_version ~= version then
+        vim.api.nvim_buf_clear_namespace(self.bufnr, client_ns[buf][client_id], 0, -1)
+        current_result.neodim_version = version ---@diagnostic disable-line: inject-field
+      end
       local highlights = assert(current_result.highlights)
       -- NOTE: `end_line` was added in nvim 0.12
       -- TODO: remove `line` when dropping support for nvim 0.11
@@ -135,7 +166,7 @@ function M.for_each_token(buf, topline, botline, fn)
         local token = assert(highlights[i])
         is_folded, foldend = check_fold(token.line + 1, foldend)
         if not is_folded then
-          local next_line = fn(state.namespace, token)
+          local next_line = fn(client_id, token)
           if next_line == false then
             return
           elseif next_line then
@@ -169,13 +200,14 @@ end
 ---@field end_row integer
 
 ---@param buf integer
----@param ns integer
+---@param client_id integer
 ---@param token_range STTokenRange
 ---@return extmark[]
-local function get_sttoken_extmarks(buf, ns, token_range)
+local function get_sttoken_extmarks(buf, client_id, token_range)
   local start = { token_range.line, token_range.start_col }
   local end_ = { token_range.line, token_range.end_col }
   local opts = { type = 'highlight', details = true }
+  local ns = STHighlighter.active[buf].client_state[client_id].namespace
   return list.from_raw(api.nvim_buf_get_extmarks(buf, ns, start, end_, opts))
 end
 
@@ -208,11 +240,11 @@ local function get_max_pri_extmark(extmarks)
 end
 
 ---@param buf integer
----@param ns integer
+---@param client_id integer
 ---@param token STTokenRange
 ---@return extmark_data?
-function M.get_sttoken_mark_data(buf, ns, token)
-  local extmarks = get_sttoken_extmarks(buf, ns, token)
+function M.get_sttoken_mark_data(buf, client_id, token)
+  local extmarks = get_sttoken_extmarks(buf, client_id, token)
   return get_max_pri_extmark(extmarks)
 end
 

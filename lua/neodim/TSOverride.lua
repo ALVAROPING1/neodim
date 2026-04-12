@@ -7,7 +7,6 @@ local list = require 'neodim.list'
 local lsp = require 'neodim.lsp'
 
 local NAMESPACE = vim.api.nvim_create_namespace 'neodim.treesitter'
-local NAMESPACE_LSP = vim.api.nvim_create_namespace 'neodim.semantic_tokens'
 
 ---@class neodim.ColumnRange
 ---@field start_col integer
@@ -16,7 +15,7 @@ local NAMESPACE_LSP = vim.api.nvim_create_namespace 'neodim.semantic_tokens'
 ---@class neodim.TSOverride
 ---@field diagnostics_map table<integer, table<integer, neodim.ColumnRange[]>>
 ---@field highlight_cache table<string, string>
----@field version_num table<integer, {num: integer, cleared: boolean}>
+---@field version_num table<integer, integer>
 local TSOverride = {}
 ---@private
 TSOverride.__index = TSOverride
@@ -65,10 +64,6 @@ TSOverride.set_override_win = function(self)
       return false
     end
     local version = self.version_num[bufnr]
-    if not version.cleared then
-      vim.api.nvim_buf_clear_namespace(bufnr, NAMESPACE_LSP, 0, -1)
-      version.cleared = true
-    end
 
     for i = top, bottom do
       if map_buf[i] then
@@ -82,7 +77,7 @@ TSOverride.set_override_win = function(self)
         break
       end
     end
-    lsp.for_each_token(bufnr, top, bottom, function(ns, token)
+    lsp.for_each_token(bufnr, version, top, bottom, function(client_id, token)
       if not map_buf[token.line] then
         for i = token.line + 1, bottom do
           if map_buf[i] then
@@ -90,9 +85,9 @@ TSOverride.set_override_win = function(self)
           end
         end
         return false
-      elseif token.neodim_version ~= version.num and self:is_unused(bufnr, token.line, token.start_col) then
-        self:override_mark_with_lsp(bufnr, ns, token)
-        token.neodim_version = version.num ---@diagnostic disable-line: inject-field
+      elseif token.neodim_version ~= version and self:is_unused(bufnr, token.line, token.start_col) then
+        self:override_mark_with_lsp(bufnr, client_id, token)
+        token.neodim_version = version ---@diagnostic disable-line: inject-field
       end
     end)
   end
@@ -174,8 +169,8 @@ TSOverride.update_unused = function(self, diagnostics, bufnr)
       list.insert(range_list, range)
     end
   end
-  local version = self.version_num[bufnr] or { num = 0 }
-  self.version_num[bufnr] = { num = version.num + 1, cleared = false }
+  local version = self.version_num[bufnr] or 0
+  self.version_num[bufnr] = version + 1
 end
 
 ---@param row integer
@@ -206,19 +201,13 @@ TSOverride.get_dim_color = function(self, hl, hl_name)
 end
 
 ---@param buf integer
----@param ns integer
+---@param client_id integer
 ---@param token STTokenRange
-TSOverride.override_mark_with_lsp = function(self, buf, ns, token)
-  local sttoken_mark_data = lsp.get_sttoken_mark_data(buf, ns, token)
+TSOverride.override_mark_with_lsp = function(self, buf, client_id, token)
+  local sttoken_mark_data = lsp.get_sttoken_mark_data(buf, client_id, token)
   if sttoken_mark_data then
     local hl_group = self:get_dim_color(sttoken_mark_data.hl_opts, sttoken_mark_data.hl_name)
-    vim.api.nvim_buf_set_extmark(buf, NAMESPACE_LSP, token.line, token.start_col, {
-      hl_group = hl_group,
-      end_line = token.end_line,
-      end_col = token.end_col,
-      priority = config.opts.priority + 10,
-      strict = false,
-    })
+    lsp.highlight(token, buf, client_id, hl_group, config.opts.priority + 10)
   end
 end
 
