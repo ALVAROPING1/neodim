@@ -83,15 +83,28 @@ if vim.fn.has 'nvim-0.12' == 0 then
   end
 end
 
-vim.api.nvim_create_autocmd("LspAttach", {
+---@param client_id integer
+---@param buf integer
+local function on_attach(client_id, buf)
+  local ns = vim.api.nvim_create_namespace('neodim.semantic_tokens:' .. client_id)
+  local state = client_ns[buf] or {}
+  state[client_id] = ns
+  client_ns[buf] = state
+end
+
+vim.api.nvim_create_autocmd('LspAttach', {
   callback = function(ev)
-    local client_id = ev.data.client_id
-    local ns = vim.api.nvim_create_namespace('neodim.semantic_tokens:' .. client_id)
-    local state =  client_ns[ev.buf] or {}
-    state[client_id] = ns
-    client_ns[ev.buf] = state
-  end
+    on_attach(ev.data.client_id, ev.buf)
+  end,
 })
+
+function M.attach_previous()
+  for _, client in ipairs(vim.lsp.get_clients()) do
+    for buf, _ in pairs(client.attached_buffers) do
+      on_attach(client.id, buf)
+    end
+  end
+end
 
 --- @param lnum integer
 --- @param foldend integer?

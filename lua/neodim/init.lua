@@ -37,6 +37,7 @@ dim.setup = function(opts)
       ts_override:update_unused(filter.get_unused(vim.diagnostic.get(bufnr)), bufnr)
     end,
   }
+  require('neodim.lsp').attach_previous()
 end
 
 return dim
