@@ -179,7 +179,7 @@ end
 TSOverride.is_unused = function(self, bufnr, row, col)
   local range_list = self.diagnostics_map[bufnr][row]
   for _, range in list.iter(range_list) do
-    if range.start_col <= col and col <= range.end_col then
+    if range.start_col <= col and col < range.end_col then
       return true
     end
   end
